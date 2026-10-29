@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ข้อมูลผู้เช่า</title>
-    <script src=" https://static.line-scdn.net/liff/edge/versions/2.25.1/sdk.js"></script>
+    <script src="https://static.line-scdn.net/liff/edge/versions/2.25.1/sdk.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="info.css">
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
@@ -31,110 +34,136 @@
     <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
+        const API = 'https://script.google.com/macros/s/AKfycbzTqgebTJ95geAI-arcsc2iBbxYLjkbxq-Vq42BxflnCtNnIvc2b7mKjVrfPSOK5drH/exec';
+        const LIFF_ID = '2008100543-3zvoPw2J';
+        const $ = (id) => document.getElementById(id);
+
+        // แสดงตัวเลขเป็นรูปแบบมีคอมมา ถ้าไม่ใช่ตัวเลขให้แสดงตามเดิม
+        function formatValue(value) {
+            if (value === null || value === undefined || value === '') return '-';
+            const n = Number(value);
+            return Number.isFinite(n) ? n.toLocaleString('th-TH') : String(value);
+        }
+
+        function addLine(card, label, value, className) {
+            const p = document.createElement('p');
+            p.append(label + ': ');
+            const span = document.createElement('span');
+            span.textContent = formatValue(value); // textContent กัน HTML แทรกจากข้อมูลในชีต
+            if (className) span.className = className;
+            p.append(span);
+            card.append(p);
+        }
+
+        function showLoadError() {
+            Swal.fire({
+                title: 'โหลดข้อมูลไม่สำเร็จ',
+                text: 'กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง',
+                icon: 'error',
+                confirmButtonText: 'ลองใหม่'
+            }).then(() => window.location.reload());
+        }
+
         async function initLiff() {
-            // Show loading SweetAlert
             Swal.fire({
                 title: 'กำลังโหลด...',
                 text: 'กรุณารอสักครู่',
                 allowOutsideClick: false,
-                didOpen: () => {
-                    Swal.showLoading();
-                }
+                didOpen: () => Swal.showLoading()
             });
 
-            await liff.init({ liffId: "2008100543-3zvoPw2J" }); // Replace YOUR_LIFF_ID_HERE with your actual LIFF ID
-            if (liff.isLoggedIn()) {
-                const profile = await liff.getProfile();
-                const userId = profile.userId;
-
-                // Fetch tenant info
-                fetch('https://script.google.com/macros/s/AKfycbzTqgebTJ95geAI-arcsc2iBbxYLjkbxq-Vq42BxflnCtNnIvc2b7mKjVrfPSOK5drH/exec?action=getTenantInfo&userId=' + userId) // Replace YOUR_SCRIPT_ID_HERE with your actual Script ID
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        // Display profile info
-                        document.getElementById('profileImage').src = data.profileImageUrl;
-                        document.getElementById('displayName').textContent = "ชื่อ: " + data.name;
-                        document.getElementById('room').textContent = data.room;
-                        document.getElementById('phone').textContent = "เบอร์โทร: " + data.phone;
-                        document.getElementById('profile').style.display = 'block';
-
-                        // Fetch and display invoice data
-                        fetchInvoiceData(userId);
-
-                        // Close the loading SweetAlert
-                        Swal.close();
-                    } else {
-                        Swal.close();
-                        window.location.href = 'index.html';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    Swal.close();
-                    window.location.href = 'index.html';
-                });
-            } else {
-                liff.login();
-                Swal.close();
+            try {
+                await liff.init({ liffId: LIFF_ID });
+            } catch (error) {
+                console.error('LIFF init failed:', error);
+                Swal.fire({ title: 'เปิดหน้านี้ไม่สำเร็จ', text: 'กรุณาเปิดผ่านลิงก์ใน LINE อีกครั้ง', icon: 'error', confirmButtonText: 'ตกลง' });
+                return;
             }
+
+            if (!liff.isLoggedIn()) {
+                liff.login();
+                return;
+            }
+
+            const profile = await liff.getProfile();
+            const userId = profile.userId;
+
+            let data;
+            try {
+                const res = await fetch(API + '?action=getTenantInfo&userId=' + encodeURIComponent(userId));
+                data = await res.json();
+            } catch (error) {
+                // เน็ตหลุด/เซิร์ฟเวอร์ไม่ตอบ: ไม่ส่งกลับไปหน้าลงทะเบียน เพราะผู้ใช้อาจลงทะเบียนไว้แล้ว
+                console.error('Error:', error);
+                Swal.close();
+                showLoadError();
+                return;
+            }
+
+            if (!data.success) {
+                window.location.href = 'index.html'; // ยังไม่ได้ลงทะเบียน
+                return;
+            }
+
+            if (data.profileImageUrl) $('profileImage').src = data.profileImageUrl;
+            else $('profileImage').style.display = 'none';
+            $('displayName').textContent = 'ชื่อ: ' + data.name;
+            $('room').textContent = data.room;
+            $('phone').textContent = 'เบอร์โทร: ' + data.phone;
+            $('profile').style.display = 'block';
+            Swal.close();
+
+            fetchInvoiceData(userId);
         }
 
-        // Fetch invoice data based on userId
-        function fetchInvoiceData(userId) {
-            fetch('https://script.google.com/macros/s/AKfycbzTqgebTJ95geAI-arcsc2iBbxYLjkbxq-Vq42BxflnCtNnIvc2b7mKjVrfPSOK5drH/exec?action=getInvoiceData&userId=' + userId) // Replace YOUR_SCRIPT_ID_HERE with your actual Script ID
-            .then(response => response.json())
-            .then(invoiceData => {
-                if (invoiceData.success) {
-                    const cardsContainer = document.getElementById('invoiceCardsContainer');
-                    cardsContainer.innerHTML = ''; // Clear previous cards
+        async function fetchInvoiceData(userId) {
+            const container = $('invoiceCardsContainer');
+            try {
+                const res = await fetch(API + '?action=getInvoiceData&userId=' + encodeURIComponent(userId));
+                const invoiceData = await res.json();
+                container.replaceChildren();
 
-                    // Sort invoices by billingMonth in descending order (from latest to oldest)
-                    invoiceData.invoices.sort((a, b) => {
-                        const [monthA, yearA] = a.billingMonth.split('/').map(Number);
-                        const [monthB, yearB] = b.billingMonth.split('/').map(Number);
-                        if (yearA !== yearB) {
-                            return yearB - yearA;
-                        }
-                        return monthB - monthA;
-                    });
-
-                    invoiceData.invoices.forEach(invoice => {
-                        const card = document.createElement('div');
-                        card.className = 'invoiceCard';
-
-                        // Apply color based on status
-                        let statusText = '';
-                        if (invoice.status === 'รอการชำระ') {
-                            statusText = `สถานะ: <span style="color: orange;">${invoice.status}</span>`;
-                        } else if (invoice.status === 'ชำระแล้ว') {
-                            statusText = `สถานะ: <span style="color: green;">${invoice.status}</span>`;
-                        } else {
-                            statusText = `สถานะ: ${invoice.status}`;
-                        }
-
-                        card.innerHTML = `
-                            <h4>ประจำเดือนที่: ${invoice.billingMonth}</h4>
-                            <p>ค่าเช่า: ${invoice.rent}</p>
-                            <p>ค่าไฟ: ${invoice.electricityCost}</p>
-                            <p>ค่าน้ำ: ${invoice.waterCost}</p>
-                            <p>ค่าส่วนกลาง: ${invoice.commonAreaFee}</p>
-                            <p>ค่าอินเทอร์เน็ต: ${invoice.internetFee}</p>
-                            <p>อื่นๆ: ${invoice.otherCosts}</p>
-                            <p>ยอดรวม: ${invoice.totalAmount}</p>
-                            <p>${statusText}</p>
-                        `;
-
-                        cardsContainer.appendChild(card);
-                    });
-                    document.getElementById('invoiceInfo').style.display = 'block';
-                } else {
-                    console.log("No invoice data available");
+                if (!invoiceData.success || !Array.isArray(invoiceData.invoices) || invoiceData.invoices.length === 0) {
+                    const empty = document.createElement('p');
+                    empty.className = 'empty';
+                    empty.textContent = 'ยังไม่มีใบแจ้งหนี้';
+                    container.append(empty);
+                    $('invoiceInfo').style.display = 'block';
+                    return;
                 }
-            })
-            .catch(error => {
+
+                // เรียงจากเดือนล่าสุดไปเก่าสุด (billingMonth รูปแบบ เดือน/ปี)
+                invoiceData.invoices.sort((a, b) => {
+                    const [monthA, yearA] = String(a.billingMonth).split('/').map(Number);
+                    const [monthB, yearB] = String(b.billingMonth).split('/').map(Number);
+                    return yearA !== yearB ? yearB - yearA : monthB - monthA;
+                });
+
+                invoiceData.invoices.forEach((invoice) => {
+                    const card = document.createElement('div');
+                    card.className = 'invoiceCard';
+
+                    const title = document.createElement('h4');
+                    title.textContent = 'ประจำเดือนที่: ' + invoice.billingMonth;
+                    card.append(title);
+
+                    addLine(card, 'ค่าเช่า', invoice.rent);
+                    addLine(card, 'ค่าไฟ', invoice.electricityCost);
+                    addLine(card, 'ค่าน้ำ', invoice.waterCost);
+                    addLine(card, 'ค่าส่วนกลาง', invoice.commonAreaFee);
+                    addLine(card, 'ค่าอินเทอร์เน็ต', invoice.internetFee);
+                    addLine(card, 'อื่นๆ', invoice.otherCosts);
+                    addLine(card, 'ยอดรวม', invoice.totalAmount, 'total');
+                    const statusClass = invoice.status === 'รอการชำระ' ? 'status-pending' : invoice.status === 'ชำระแล้ว' ? 'status-paid' : '';
+                    addLine(card, 'สถานะ', invoice.status, statusClass);
+
+                    container.append(card);
+                });
+                $('invoiceInfo').style.display = 'block';
+            } catch (error) {
                 console.error('Error fetching invoice data:', error);
-            });
+                showLoadError();
+            }
         }
 
         initLiff();
